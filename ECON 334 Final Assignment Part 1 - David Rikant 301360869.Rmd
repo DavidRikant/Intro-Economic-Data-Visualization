@@ -1,0 +1,180 @@
+---
+title: "Comparing Fuel Consumption Ratings of Different Car Brands "
+author: "David Rikant"
+date: "12/3/2022"
+output: html_document
+---
+### Global Setup Options:
+```{r setup, include - FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## **Introduction**
+
+As technological advancements have made automobiles cheaper to manufacture, does this extend to car companies also improving their fuel economy in the process? I intend to explore this question by gaining deeper insight into Canada's fuel efficiency performance metrics, measured in liters per 100 kilometers (L/100 km). When deciding what car to buy, fuel consumption ratings are considered a top determining factor because each individual has different use cases for how they utilize their vehicles. Some may have a preference for long highway commutes, whereas others may be inner-city dwellers who drive in and around downtown every day. Regardless of which type of driver you are, I am specifically looking at the used car markets and how manufacturers have developed their technologies to be more efficient over the years and which cars perform better than others. Although much research and analysis has been conducted on fuel economy and consumption, my goal is to understand why bigger vehicles have better overall fuel consumption ratings than that of other car brands.
+
+## **Data Description**
+
+The data I am using is sourced from the Government of Canada for my analysis. This data compares different car makes and models against each other as fuel consumption rating also depends on the car's vehicle class, engine size, number of cylinders, transmission, and fuel type. The data also provides estimated carbon dioxide (CO2) emissions for the different cars as well. The data was sourced from car manufacturers’ fuel consumption ratings they claim for each car model of each make. The key variables that this report will be focussing on is certain makes of car brands being ocmpared with their average combined consumption rating for both highway and city driving. These combined ratings are based on 55% city and 45% highway driving, all in L/100 km denominations. Although more variables could be used, there are many studies that already explore many variations of these variables when comparing fuel consumption ratings. Therefore, applying the more simpler variables and reducing the number of car makes being analyzed could yield more appropriate results.
+
+## **Summary Statistics**
+
+```{r}
+library(tidyverse)
+library(tidyr)
+library(modelr)
+library(ggplot2)
+
+cars <- read_csv("Original MY2000-2014 Fuel Consumption Ratings (2-cycle).csv", guess_max = 1000000) %>% subset(select = -c(14:221))
+
+cars = cars[-c(1, 14255:14275), ]
+names(cars) <- c("YEAR", "MAKE", "MODEL # = high output engine", "VEHICLE_CLASS", "ENGINE_SIZE", "CYLINDERS", "TRANSMISSION", "FUEL_TYPE", "FUEL_CONSUMPTION_CITY", "FUEL_CONSUMPTION_HWY", "FUEL_CONSUMPTION_COMB", "FUEL_CONSUMPTION_COMB_MPG", "CO2_EMISSIONS")
+i <- c(5, 6, 9, 10, 11, 12, 13)
+cars[ , i] <- apply(cars[ , i], 2, 
+                    function(x) as.numeric(as.character(x)))
+
+cars1 <- cars %>%
+  filter(YEAR > 2003) %>%
+  as.data.frame() %>%
+  mutate(FUEL_TYPE = if_else(FUEL_TYPE == "X", "Regular gasoline", FUEL_TYPE), 
+         FUEL_TYPE = if_else(FUEL_TYPE == "Z", "Premium gasoline", FUEL_TYPE), 
+         FUEL_TYPE = if_else(FUEL_TYPE == "D", "Diesel", FUEL_TYPE), 
+         FUEL_TYPE = if_else(FUEL_TYPE == "E", "Ethanol (E85)", FUEL_TYPE), 
+         FUEL_TYPE = if_else(FUEL_TYPE == "N", "Natural Gas", FUEL_TYPE)) %>%
+  group_by(YEAR, MAKE, ENGINE_SIZE, VEHICLE_CLASS, FUEL_CONSUMPTION_COMB)
+summary(cars1)
+```
+
+Of the 5 variables I chose, 2 of them are numeric with representative summary statistics. What is interesting about `ENGINE_SIZE` is the average sits at around 3.5L which is quite big as most car companies as of 2022 have an `ENGINE_SIZE` less than 2.5L. Additionally, the average `FUEL_CNSUMPTION_COMB` for all car makes is 11.02 L/100 km which is considered a lot if the car is compact, but very efficient if the car is a large SUV. It is context dependent.
+
+```{r}
+cars2 <- cars1 %>%
+group_by(YEAR) %>%
+  summarize(avgfuel = mean(FUEL_CONSUMPTION_COMB))
+
+targetcars <- c("AUDI", "ACURA", "BMW", "CHEVROLET", "DODGE", "FORD", "GMC", "HONDA", "LEXUS",  "MERCEDES-BANZ", "PORSCHE", "TOYOTA", "VOLKSWAGEN")
+cars3 <- cars1 %>%
+  filter(MAKE %in% targetcars)
+  
+carplot1 <- cars1 %>%
+  ggplot(aes(x = YEAR, y = FUEL_CONSUMPTION_COMB))  + 
+  geom_point(alpha = 0.15) +
+  geom_point(data = cars2, 
+             mapping = aes(y = avgfuel),
+             color = "green", 
+             size =4, 
+             alpha = 0.5) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  theme_bw() +
+  labs(
+    title = "Fuel Consumption for All Cars Against Years", 
+    subtitle = "Between 2004 and 2014", 
+    caption = "Source: Government of Canada: Fuel consumption ratings", 
+    y = "Fuel Consumption Combined (L/100 km)", 
+    x = "Years"
+  )
+carplot2 <- cars3 %>%
+  ggplot(aes(x = YEAR, y = FUEL_CONSUMPTION_COMB))  + 
+  facet_wrap(~MAKE, nrow = 3) +
+  scale_x_discrete(guide = guide_axis(angle = 90)) +
+  geom_point(alpha = 0.15) +
+  geom_point(data = cars2, 
+             mapping = aes(y = avgfuel),
+             color = "red", 
+             size = 2.5, 
+             alpha = 0.5) +
+  theme_bw() +
+  labs(
+    title = "Fuel Consumption For Select Cars Against Years", 
+    subtitle = "Between 2004 and 2014", 
+    caption = "Source: Government of Canada: Fuel consumption ratings", 
+    y = "Fuel Consumption Combined (L/100 km)", 
+    x = "Years"
+  )
+print(carplot1)
+print(carplot2)
+```
+
+### This plot depicts the overall fuel consumption of some hand-picked cars I was interesteed in between 2004 and 2014, with the `RED` points signifying that years average fuel consumption for all cars made in that year. Manufacturers that sell SUV's and Trucks are seen to have higher average fuel consumption compared to shown. The overall rend for these select cars is as manufacturing improves, so does the fuel consumption as seen from 2009 onward.
+
+
+## **Linear Regression Model**
+
+```{r}
+
+cars4 <- cars %>%
+  group_by(YEAR, VEHICLE_CLASS) %>%
+  summarize(avgfuel = mean(FUEL_CONSUMPTION_COMB))
+
+reg <- lm(avgfuel ~ YEAR + VEHICLE_CLASS, data = cars4)
+summary(reg)
+
+carreg <- cars3 %>%
+  ggplot(aes(x = YEAR, y = FUEL_CONSUMPTION_COMB, color = VEHICLE_CLASS))  + 
+  facet_wrap(~MAKE, nrow = 3) +
+  scale_x_discrete(guide = guide_axis(angle = 90)) +
+  geom_point(alpha = 0.15) + geom_smooth(method = "lm", formula = y ~ x, color = "green", fill = "green", se = FALSE) +
+  geom_point(data = cars2, 
+             mapping = aes(y = avgfuel),
+             color = "red", 
+             size = 2.5, 
+             alpha = 0.5) +
+  theme_bw() +
+  labs(
+    title = "Fuel Consumption For Select Cars Against Years", 
+    subtitle = "Between 2004 and 2014", 
+    caption = "Source: Government of Canada: Fuel consumption ratings", 
+    y = "Fuel Consumption Combined (L/100 km)", 
+    x = "Years", 
+    color = "Vehicle Class"
+  )
+print(carreg)
+```
+
+Observing the estimated linear regression, it is evident that in terms of `YEAR`, there is evidence that there is an influence on the progression of years over the 10 year time period. I am predicting the average fuel consumption rating variable (Yi). The variables `YEAR` and `VEHICLE_CLASS` are being used to make a prediction (Xi) about the average fuel consumption rating for cars. From the figure, the estimated regressions for the luxury car brands, these being `BMW`, `AUDI`, and `PORSCHE` have fuel consumption averages below that of the overall average fuel consumption rating calculated in the summary statistic section of this report. On the other hand, we can see that the American car companies, these being `CHEVROLET`, `GMC`, `DODGE`, and `FORD` have good fitting linear regrewssion lines that do the best at predicting each of their respective fuel consumption ratings for that make. Although I did not include specific models of each car make, this generalization is enough to constitute an idea regarding which car manufacturers have more well rounded cars compared to the poorly designed cars that have inefficient fuel consumption ratings (low L.100 km ratings).
+
+##**Additional Visualization Analysis**
+
+```{r}
+cars$L100 <- round((cars$FUEL_CONSUMPTION_COMB - mean(cars$FUEL_CONSUMPTION_COMB))/ sd(cars$FUEL_CONSUMPTION_COMB), 2)
+cars$L100_type <- ifelse(cars$L100 < 0, "below", "above")
+cars <- cars[order(cars$L100), ]
+
+targetcars <- c("AUDI", "ACURA", "BMW", "CHEVROLET", "DODGE", "FORD", "GMC", "HONDA", "LEXUS",  "MERCEDES-BANZ", "PORSCHE", "TOYOTA", "VOLKSWAGEN")
+cars <- cars %>%
+  filter(MAKE %in% targetcars)
+
+ggplot(cars, aes(x= cars$MAKE, y = cars$L100, label = cars$L100)) + 
+  geom_bar(stat='identity', aes(fill = cars$L100_type), width=.5)  + 
+  theme(axis.text.y = element_text(size = 3, angle = 0, hjust = 1, vjust = 0, face = "plain")) + 
+  theme_bw() +
+  scale_fill_manual(name="Fuel Consumption Mileage", 
+                    labels = c("Above Average", "Below Average"), 
+                    values = c("above"="#d15e56", "below"="#80ff30")) + 
+  labs(title="Diverged Bars of Average Fuel Consumption Rates for Different Car Makes", 
+       subtitle= "Between 2004 and 2014", 
+       caption = "Source: Government of Canada: Fuel consumption ratings", 
+       y = "Normalized Fuel Consumption Rating", 
+       x = "Make of Car Manufacturer") + 
+  coord_flip()
+
+```
+
+This plot has been normalized based on a z-score, with each car make having both above and below average fuel consumption ratings based on that car's average model run over the spand of 10 years. It is evident that from our previous plots, `CHEVROLET`, `GMC`, `FORD`, and `DODGE` all have the most models produced during this time period. They also produce the heaviest vehicles in the form of SUV's and trucks. Therefore, it makes sense that these car manufacturers have very inefficient vehicles while also producing some of the most efficient engines for vehicles. Luxury brand such as `BMW`, `AUDI`, and `PORSCHE` are high performance vehicles for the most part, but have decent fuel efficiency compared to the average amongst all the other vehicles in the plot. The best fuel economy goes to both `VOLKSWAGEN` and `TOYOTA` which have the most efficient fuel economy of any car make from the plot. `TOYOTA` is known to have the most reliable cars so this coincides with the real-world results as well.
+
+## **Conclusion** 
+
+Wrapping up this report, we have learned that between the time period of 2004 to 2014, the most efficient cars made with great fuel consumption ratings are that of `VOLKSWAGEN` and `TOYOTA` which also do not have many car models that are above average and are considered inefficient. American car brands have good reputations for their lighter weight cars, but the trucks and SUV's are their biggest downfall in terms of fuel consumption ratings. The luxury car brands are at a happy medium with some cars having less than average efficiency. We also learned that the more cars that were produced overall for a car brand, the more diverse the fuel consumption ratings are.
+
+## **References**
+
+```{r, message = FALSE}
+library(tidyverse)
+library(tidyr)
+library(modelr)
+library(ggplot2)
+```
+[Government of Canada: Fuel consumption ratings] <https://open.canada.ca/data/en/dataset/98f1a129-f628-4ce4-b24d-6f16bf24dd64>
+
+[Top 50 Best Visualizations For Complex Data] <http://r-statistics.co/Top50-Ggplot2-Visualizations-MasterList-R-Code.html>
+[Fuel Economy Canada: Most Fuel Efficient Vehicles in Each Class] <https://blog.clutch.ca/posts/fuel-economy-canada-most-fuel-efficient-vehicles-in-each-class>
